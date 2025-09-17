@@ -1,0 +1,9 @@
+Titulo,Descricao,DataVencimento,Prioridade,Responsavel,Checklist,Status,TaskId,DataCriacao
+"Revisar documentação do projeto","Revisar e atualizar toda a documentação técnica do projeto","2025-09-25T17:00:00Z","Alta","João Silva","Revisar README;Atualizar diagramas;Validar APIs","Pendente","",""
+"Implementar nova funcionalidade","Desenvolver módulo de relatórios conforme especificação","2025-09-30T17:00:00Z","Media","Maria Santos","Criar estrutura;Implementar lógica;Testar módulo","Pendente","",""
+"Correção de bugs críticos","Corrigir bugs reportados na versão 2.1","2025-09-20T17:00:00Z","Alta","Pedro Costa","Identificar causa;Aplicar correção;Testar solução","Pendente","",""
+"Reunião com cliente","Apresentar progresso do projeto e coletar feedback","2025-09-22T14:00:00Z","Media","Ana Lima","Preparar apresentação;Agendar sala;Enviar convites","Pendente","",""
+"Atualizar dependências","Atualizar todas as dependências do projeto para versões mais recentes","2025-10-01T17:00:00Z","Baixa","Carlos Oliveira","Verificar compatibilidade;Atualizar packages;Executar testes","Pendente","",""
+"Treinamento da equipe","Realizar treinamento sobre novas ferramentas","2025-09-28T10:00:00Z","Media","Fernanda Alves","Preparar material;Agendar sessão;Avaliar aprendizado","Pendente","",""
+"Deploy em produção","Realizar deploy da versão 2.2 em ambiente de produção","2025-10-05T20:00:00Z","Alta","Roberto Dias","Backup do sistema;Deploy aplicação;Validar funcionamento","Pendente","",""
+"Análise de performance","Analisar e otimizar performance do sistema","2025-10-10T17:00:00Z","Media","Lucia Mendes","Executar profiling;Identificar gargalos;Implementar melhorias","Pendente","",""

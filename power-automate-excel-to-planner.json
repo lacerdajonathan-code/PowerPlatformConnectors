@@ -1,0 +1,205 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "Recurrence": {
+      "recurrence": {
+        "frequency": "Day",
+        "interval": 1,
+        "schedule": {
+          "hours": ["9"],
+          "minutes": [0]
+        }
+      },
+      "type": "Recurrence",
+      "description": "Executa diariamente às 9h"
+    }
+  },
+  "actions": {
+    "List_rows_present_in_a_table": {
+      "runAfter": {},
+      "type": "ApiConnection",
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "@parameters('$connections')['excelonline']['connectionId']"
+          }
+        },
+        "method": "get",
+        "path": "/drives/@{encodeURIComponent('DRIVE_ID')}/files/@{encodeURIComponent('FILE_ID')}/tables/@{encodeURIComponent('Table1')}/items",
+        "queries": {
+          "source": "me"
+        }
+      },
+      "metadata": {
+        "operationMetadataId": "list-rows-excel"
+      }
+    },
+    "Apply_to_each": {
+      "foreach": "@body('List_rows_present_in_a_table')?['value']",
+      "actions": {
+        "Condition_Check_Status": {
+          "actions": {
+            "Create_a_task": {
+              "runAfter": {},
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['planner']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "body": {
+                  "planId": "PLAN_ID",
+                  "bucketId": "BUCKET_ID",
+                  "title": "@{items('Apply_to_each')?['Titulo']}",
+                  "percentComplete": 0,
+                  "dueDateTime": "@{items('Apply_to_each')?['DataVencimento']}",
+                  "assignments": {
+                    "USER_ID": {
+                      "@odata.type": "#microsoft.graph.plannerAssignment",
+                      "orderHint": " !"
+                    }
+                  },
+                  "priority": "@{if(equals(items('Apply_to_each')?['Prioridade'], 'Alta'), 1, if(equals(items('Apply_to_each')?['Prioridade'], 'Media'), 5, 9))}"
+                },
+                "path": "/v1.0/planner/tasks",
+                "queries": {
+                  "$select": "id,title,percentComplete,dueDateTime,assignments,priority"
+                }
+              },
+              "metadata": {
+                "operationMetadataId": "create-planner-task"
+              }
+            },
+            "Update_task_details": {
+              "runAfter": {
+                "Create_a_task": ["Succeeded"]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['planner']['connectionId']"
+                  }
+                },
+                "method": "patch",
+                "body": {
+                  "description": "@{items('Apply_to_each')?['Descricao']}",
+                  "checklist": {
+                    "@{guid()}": {
+                      "@odata.type": "#microsoft.graph.plannerChecklistItem",
+                      "title": "@{items('Apply_to_each')?['Checklist']}",
+                      "isChecked": false
+                    }
+                  }
+                },
+                "path": "/v1.0/planner/tasks/@{body('Create_a_task')?['id']}/details",
+                "headers": {
+                  "If-Match": "@{body('Create_a_task')?['@odata.etag']}"
+                }
+              },
+              "metadata": {
+                "operationMetadataId": "update-task-details"
+              }
+            },
+            "Update_row": {
+              "runAfter": {
+                "Update_task_details": ["Succeeded"]
+              },
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['excelonline']['connectionId']"
+                  }
+                },
+                "method": "patch",
+                "body": {
+                  "Status": "Criado",
+                  "TaskId": "@{body('Create_a_task')?['id']}",
+                  "DataCriacao": "@{utcNow()}"
+                },
+                "path": "/drives/@{encodeURIComponent('DRIVE_ID')}/files/@{encodeURIComponent('FILE_ID')}/tables/@{encodeURIComponent('Table1')}/items/@{encodeURIComponent(items('Apply_to_each')?['__PowerAppsId__'])}",
+                "queries": {
+                  "source": "me"
+                }
+              },
+              "metadata": {
+                "operationMetadataId": "update-row-excel"
+              }
+            }
+          },
+          "runAfter": {},
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": [
+                    "@items('Apply_to_each')?['Status']",
+                    "Criado"
+                  ]
+                }
+              }
+            ]
+          },
+          "type": "If",
+          "description": "Verifica se a tarefa já foi criada"
+        }
+      },
+      "runAfter": {
+        "List_rows_present_in_a_table": ["Succeeded"]
+      },
+      "type": "Foreach"
+    },
+    "Send_notification_email": {
+      "runAfter": {
+        "Apply_to_each": ["Succeeded"]
+      },
+      "type": "ApiConnection",
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "@parameters('$connections')['outlook']['connectionId']"
+          }
+        },
+        "method": "post",
+        "body": {
+          "To": "EMAIL_DESTINATARIO",
+          "Subject": "Tarefas criadas no Planner - @{formatDateTime(utcNow(), 'dd/MM/yyyy')}",
+          "Body": "<p>Processo de criação de tarefas concluído.</p><p>Total de linhas processadas: @{length(body('List_rows_present_in_a_table')?['value'])}</p>",
+          "Importance": "Normal"
+        },
+        "path": "/v2/Mail"
+      },
+      "metadata": {
+        "operationMetadataId": "send-email"
+      }
+    }
+  },
+  "outputs": {},
+  "connections": {
+    "excelonline": {
+      "connectionId": "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP/providers/Microsoft.Web/connections/excelonline",
+      "connectionName": "excelonline",
+      "id": "/subscriptions/SUBSCRIPTION_ID/providers/Microsoft.Web/locations/LOCATION/managedApis/excelonline"
+    },
+    "planner": {
+      "connectionId": "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP/providers/Microsoft.Web/connections/planner",
+      "connectionName": "planner",
+      "id": "/subscriptions/SUBSCRIPTION_ID/providers/Microsoft.Web/locations/LOCATION/managedApis/planner"
+    },
+    "outlook": {
+      "connectionId": "/subscriptions/SUBSCRIPTION_ID/resourceGroups/RESOURCE_GROUP/providers/Microsoft.Web/connections/outlook",
+      "connectionName": "outlook",
+      "id": "/subscriptions/SUBSCRIPTION_ID/providers/Microsoft.Web/locations/LOCATION/managedApis/outlook"
+    }
+  }
+}
