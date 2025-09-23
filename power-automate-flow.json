@@ -1,0 +1,166 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "Recurrence": {
+      "type": "Recurrence",
+      "recurrence": {
+        "interval": 1,
+        "frequency": "Hour",
+        "timeZone": "E. South America Standard Time"
+      }
+    }
+  },
+  "actions": {
+    "Listar_linhas_presentes_em_uma_tabela": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "source": "sites/petrobrasbr.sharepoint.com,578615aa-234b-4aec-af9d-0be56c810016,2e87ad81-e850-48cd-a4a7-120bce0d73a0",
+          "drive": "b!qhWGV0sj7EqvnQvlbIEAFoGthy5Q6M1IpKcSC84Nc6DrX9IW9jMdRJOLnwRSgrL8",
+          "file": "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA",
+          "table": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+          "connection": "shared_excelonlinebusiness",
+          "operationId": "GetItems"
+        }
+      },
+      "runAfter": {},
+      "metadata": {
+        "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA": "/1.Gerência/Controles/Planner_Tarefas_Unificadas.xlsx",
+        "tableId": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+      }
+    },
+    "Listar_buckets_uma_vez": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+          "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+          "connection": "shared_planner",
+          "operationId": "ListBuckets_V3"
+        }
+      },
+      "runAfter": {
+        "Listar_linhas_presentes_em_uma_tabela": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Listar_todas_tarefas_existentes": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+          "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+          "connection": "shared_planner",
+          "operationId": "ListTasks_V3"
+        }
+      },
+      "runAfter": {
+        "Listar_buckets_uma_vez": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Processar_cada_linha_do_Excel": {
+      "type": "Foreach",
+      "foreach": "@body('Listar_linhas_presentes_em_uma_tabela')?['value']",
+      "actions": {
+        "Filtrar_bucket_correspondente": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Listar_buckets_uma_vez')?['value']",
+            "where": "@equals(item()?['name'], items('Processar_cada_linha_do_Excel')?['Bucket'])"
+          }
+        },
+        "Verificar_se_tarefa_existe": {
+          "type": "Query",
+          "inputs": {
+            "from": "@body('Listar_todas_tarefas_existentes')?['value']",
+            "where": "@equals(item()?['title'], items('Processar_cada_linha_do_Excel')?['Nome da Tarefa'])"
+          },
+          "runAfter": {
+            "Filtrar_bucket_correspondente": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Condição_criar_tarefa": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "equals": [
+                  "@length(body('Verificar_se_tarefa_existe'))",
+                  0
+                ]
+              },
+              {
+                "greater": [
+                  "@length(body('Filtrar_bucket_correspondente'))",
+                  0
+                ]
+              }
+            ]
+          },
+          "actions": {
+            "Criar_nova_tarefa": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "parameters": {
+                  "body/groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                  "body/planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY",
+                  "body/title": "@items('Processar_cada_linha_do_Excel')?['Nome da Tarefa']",
+                  "body/bucketId": "@first(body('Filtrar_bucket_correspondente'))?['id']",
+                  "body/startDateTime": "@items('Processar_cada_linha_do_Excel')?['Data de início']",
+                  "body/dueDateTime": "@items('Processar_cada_linha_do_Excel')?['Data de conclusão']",
+                  "body/percentComplete": 0,
+                  "body/notes": "@items('Processar_cada_linha_do_Excel')?['Descrição']"
+                },
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                  "connection": "shared_planner",
+                  "operationId": "CreateTask_V3"
+                }
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Log_tarefa_existente": {
+                "type": "Compose",
+                "inputs": "Tarefa '@{items('Processar_cada_linha_do_Excel')?['Nome da Tarefa']}' já existe no Planner"
+              }
+            }
+          },
+          "runAfter": {
+            "Verificar_se_tarefa_existe": [
+              "Succeeded"
+            ]
+          }
+        }
+      },
+      "runAfter": {
+        "Listar_todas_tarefas_existentes": [
+          "Succeeded"
+        ]
+      }
+    }
+  },
+  "outputs": {}
+}

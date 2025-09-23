@@ -1,0 +1,406 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    },
+    "$configuration": {
+      "defaultValue": {
+        "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+        "planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+      },
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "Recurrence": {
+      "type": "Recurrence",
+      "recurrence": {
+        "interval": 1,
+        "frequency": "Hour",
+        "timeZone": "E. South America Standard Time",
+        "startTime": "2025-01-01T00:00:00Z"
+      }
+    }
+  },
+  "actions": {
+    "Initialize_Variables": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "CreatedTasksCount",
+            "type": "integer",
+            "value": 0
+          }
+        ]
+      },
+      "runAfter": {}
+    },
+    "Initialize_SkippedTasksArray": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "SkippedTasks",
+            "type": "array",
+            "value": []
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_Variables": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Try_Scope": {
+      "type": "Scope",
+      "actions": {
+        "Get_Excel_Data": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "source": "sites/petrobrasbr.sharepoint.com,578615aa-234b-4aec-af9d-0be56c810016,2e87ad81-e850-48cd-a4a7-120bce0d73a0",
+              "drive": "b!qhWGV0sj7EqvnQvlbIEAFoGthy5Q6M1IpKcSC84Nc6DrX9IW9jMdRJOLnwRSgrL8",
+              "file": "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA",
+              "table": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}",
+              "$top": 1000
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+              "connection": "shared_excelonlinebusiness",
+              "operationId": "GetItems"
+            },
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 3,
+              "interval": "PT10S"
+            }
+          },
+          "runAfter": {},
+          "metadata": {
+            "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA": "/1.Gerência/Controles/Planner_Tarefas_Unificadas.xlsx",
+            "tableId": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+          }
+        },
+        "Get_All_Buckets": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "groupId": "@parameters('$configuration')?['groupId']",
+              "id": "@parameters('$configuration')?['planId']"
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+              "connection": "shared_planner",
+              "operationId": "ListBuckets_V3"
+            },
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 3,
+              "interval": "PT10S"
+            }
+          },
+          "runAfter": {
+            "Get_Excel_Data": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Get_All_Existing_Tasks": {
+          "type": "OpenApiConnection",
+          "inputs": {
+            "parameters": {
+              "groupId": "@parameters('$configuration')?['groupId']",
+              "id": "@parameters('$configuration')?['planId']",
+              "$top": 400
+            },
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+              "connection": "shared_planner",
+              "operationId": "ListTasks_V3"
+            },
+            "retryPolicy": {
+              "type": "exponential",
+              "count": 3,
+              "interval": "PT10S"
+            }
+          },
+          "runAfter": {
+            "Get_All_Buckets": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Select_Task_Titles": {
+          "type": "Select",
+          "inputs": {
+            "from": "@body('Get_All_Existing_Tasks')?['value']",
+            "select": "@item()?['title']"
+          },
+          "runAfter": {
+            "Get_All_Existing_Tasks": [
+              "Succeeded"
+            ]
+          }
+        },
+        "Process_Each_Excel_Row": {
+          "type": "Foreach",
+          "foreach": "@body('Get_Excel_Data')?['value']",
+          "actions": {
+            "Check_Required_Fields": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "not": {
+                      "equals": [
+                        "@items('Process_Each_Excel_Row')?['Nome da Tarefa']",
+                        ""
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "equals": [
+                        "@items('Process_Each_Excel_Row')?['Bucket']",
+                        ""
+                      ]
+                    }
+                  }
+                ]
+              },
+              "actions": {
+                "Find_Matching_Bucket": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@body('Get_All_Buckets')?['value']",
+                    "where": "@equals(item()?['name'], items('Process_Each_Excel_Row')?['Bucket'])"
+                  }
+                },
+                "Check_Task_and_Bucket": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "contains": [
+                            "@body('Select_Task_Titles')",
+                            "@items('Process_Each_Excel_Row')?['Nome da Tarefa']"
+                          ]
+                        }
+                      },
+                      {
+                        "greater": [
+                          "@length(body('Find_Matching_Bucket'))",
+                          0
+                        ]
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Create_Task_Try": {
+                      "type": "Scope",
+                      "actions": {
+                        "Create_New_Task": {
+                          "type": "OpenApiConnection",
+                          "inputs": {
+                            "parameters": {
+                              "body/groupId": "@parameters('$configuration')?['groupId']",
+                              "body/planId": "@parameters('$configuration')?['planId']",
+                              "body/title": "@items('Process_Each_Excel_Row')?['Nome da Tarefa']",
+                              "body/bucketId": "@first(body('Find_Matching_Bucket'))?['id']",
+                              "body/startDateTime": "@if(not(empty(items('Process_Each_Excel_Row')?['Data de início'])), items('Process_Each_Excel_Row')?['Data de início'], null)",
+                              "body/dueDateTime": "@if(not(empty(items('Process_Each_Excel_Row')?['Data de conclusão'])), items('Process_Each_Excel_Row')?['Data de conclusão'], null)",
+                              "body/percentComplete": 0,
+                              "body/notes": "@if(not(empty(items('Process_Each_Excel_Row')?['Descrição'])), items('Process_Each_Excel_Row')?['Descrição'], '')",
+                              "body/priority": "@if(equals(items('Process_Each_Excel_Row')?['Prioridade'], 'Alta'), 1, if(equals(items('Process_Each_Excel_Row')?['Prioridade'], 'Baixa'), 9, 5))"
+                            },
+                            "host": {
+                              "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                              "connection": "shared_planner",
+                              "operationId": "CreateTask_V3"
+                            }
+                          }
+                        },
+                        "Increment_Created_Count": {
+                          "type": "IncrementVariable",
+                          "inputs": {
+                            "name": "CreatedTasksCount",
+                            "value": 1
+                          },
+                          "runAfter": {
+                            "Create_New_Task": [
+                              "Succeeded"
+                            ]
+                          }
+                        },
+                        "Add_to_Created_List": {
+                          "type": "AppendToArrayVariable",
+                          "inputs": {
+                            "name": "SkippedTasks",
+                            "value": {
+                              "taskName": "@items('Process_Each_Excel_Row')?['Nome da Tarefa']",
+                              "status": "Created",
+                              "bucket": "@items('Process_Each_Excel_Row')?['Bucket']"
+                            }
+                          },
+                          "runAfter": {
+                            "Increment_Created_Count": [
+                              "Succeeded"
+                            ]
+                          }
+                        }
+                      },
+                      "runAfter": {}
+                    },
+                    "Create_Task_Catch": {
+                      "type": "Scope",
+                      "actions": {
+                        "Log_Creation_Error": {
+                          "type": "Compose",
+                          "inputs": {
+                            "error": "Failed to create task",
+                            "taskName": "@items('Process_Each_Excel_Row')?['Nome da Tarefa']",
+                            "errorDetails": "@result('Create_Task_Try')"
+                          }
+                        }
+                      },
+                      "runAfter": {
+                        "Create_Task_Try": [
+                          "Failed",
+                          "Skipped",
+                          "TimedOut"
+                        ]
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {
+                      "Add_to_Skipped_List": {
+                        "type": "AppendToArrayVariable",
+                        "inputs": {
+                          "name": "SkippedTasks",
+                          "value": {
+                            "taskName": "@items('Process_Each_Excel_Row')?['Nome da Tarefa']",
+                            "status": "Already Exists",
+                            "bucket": "@items('Process_Each_Excel_Row')?['Bucket']"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Find_Matching_Bucket": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Log_Missing_Fields": {
+                    "type": "Compose",
+                    "inputs": {
+                      "warning": "Skipping row due to missing required fields",
+                      "row": "@items('Process_Each_Excel_Row')"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "runAfter": {
+            "Select_Task_Titles": [
+              "Succeeded"
+            ]
+          },
+          "runtimeConfiguration": {
+            "concurrency": {
+              "repetitions": 5
+            }
+          }
+        },
+        "Create_Summary": {
+          "type": "Compose",
+          "inputs": {
+            "summary": {
+              "executionTime": "@utcNow()",
+              "totalRowsProcessed": "@length(body('Get_Excel_Data')?['value'])",
+              "tasksCreated": "@variables('CreatedTasksCount')",
+              "tasksSkipped": "@sub(length(body('Get_Excel_Data')?['value']), variables('CreatedTasksCount'))",
+              "taskDetails": "@variables('SkippedTasks')"
+            }
+          },
+          "runAfter": {
+            "Process_Each_Excel_Row": [
+              "Succeeded"
+            ]
+          }
+        }
+      },
+      "runAfter": {
+        "Initialize_SkippedTasksArray": [
+          "Succeeded"
+        ]
+      }
+    },
+    "Catch_Scope": {
+      "type": "Scope",
+      "actions": {
+        "Send_Error_Notification": {
+          "type": "Compose",
+          "inputs": {
+            "error": "Flow execution failed",
+            "timestamp": "@utcNow()",
+            "errorDetails": "@result('Try_Scope')",
+            "recommendation": "Check Excel file accessibility and Planner permissions"
+          }
+        }
+      },
+      "runAfter": {
+        "Try_Scope": [
+          "Failed",
+          "Skipped",
+          "TimedOut"
+        ]
+      }
+    },
+    "Finally_Scope": {
+      "type": "Scope",
+      "actions": {
+        "Log_Execution_Complete": {
+          "type": "Compose",
+          "inputs": {
+            "message": "Flow execution completed",
+            "timestamp": "@utcNow()",
+            "status": "@if(equals(result('Try_Scope'), 'Succeeded'), 'Success', 'Failed')"
+          }
+        }
+      },
+      "runAfter": {
+        "Try_Scope": [
+          "Succeeded",
+          "Failed",
+          "Skipped",
+          "TimedOut"
+        ],
+        "Catch_Scope": [
+          "Succeeded",
+          "Failed",
+          "Skipped",
+          "TimedOut"
+        ]
+      }
+    }
+  },
+  "outputs": {
+    "ExecutionSummary": {
+      "type": "object",
+      "value": "@if(equals(result('Try_Scope'), 'Succeeded'), outputs('Create_Summary'), outputs('Send_Error_Notification'))"
+    }
+  }
+}

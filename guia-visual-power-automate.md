@@ -1,0 +1,256 @@
+# 🖼️ GUIA VISUAL - CORREÇÕES NO POWER AUTOMATE
+
+## 📌 CORREÇÃO 1: MOVER "LISTAR BUCKETS" PARA FORA DO LOOP
+
+### ❌ ERRADO (Como está agora):
+```
+┌─────────────────────────────┐
+│ 📊 Listar linhas Excel      │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│ 🔄 Aplicar a cada           │
+│  ┌───────────────────────┐  │
+│  │ ❌ Listar buckets     │  │ ← DENTRO DO LOOP (ERRADO!)
+│  │ ❌ Filtrar Matriz     │  │
+│  │ ❌ Listar tarefas     │  │
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+```
+
+### ✅ CORRETO (Como deve ficar):
+```
+┌─────────────────────────────┐
+│ 📊 Listar linhas Excel      │
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│ ✅ Listar buckets           │ ← FORA DO LOOP (CORRETO!)
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│ ✅ Listar tarefas existentes│ ← FORA DO LOOP (CORRETO!)
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│ 🔄 Aplicar a cada           │
+│  ┌───────────────────────┐  │
+│  │ Processar cada linha  │  │
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+```
+
+---
+
+## 📌 CORREÇÃO 2: CAMPO "DE" NO FILTRAR MATRIZ
+
+### ❌ ERRADO:
+```
+┌──────────────────────────────────────┐
+│ Filtrar Matriz                       │
+├──────────────────────────────────────┤
+│ De: items('Aplicar_a_cada')         │ ← ERRADO! Pega só 1 item
+│                                      │
+│ Onde: [configuração]                 │
+└──────────────────────────────────────┘
+```
+
+### ✅ CORRETO:
+```
+┌──────────────────────────────────────┐
+│ Filtrar Matriz                       │
+├──────────────────────────────────────┤
+│ De: body('Listar_Todos_Buckets')?   │ ← CORRETO! Pega a lista
+│     ['value']                        │
+│                                      │
+│ Onde: item()?['name'] é igual a     │
+│       items('Processar_Cada_Linha')? │
+│       ['Bucket']                     │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 📌 CORREÇÃO 3: CONDIÇÃO LÓGICA
+
+### ❌ ERRADO (Comparação impossível):
+```
+┌──────────────────────────────────────┐
+│ Condição                             │
+├──────────────────────────────────────┤
+│ SE:                                  │
+│ equals(length(...), 0)  =  Nome da  │
+│         ↑                    ↑       │
+│    [true/false]         [texto]      │
+│                                      │
+│ ⚠️ NUNCA VAI FUNCIONAR!             │
+└──────────────────────────────────────┘
+```
+
+### ✅ CORRETO (Duas verificações com AND):
+```
+┌──────────────────────────────────────┐
+│ Condição                             │
+├──────────────────────────────────────┤
+│ SE:                                  │
+│                                      │
+│ length(Verificar_Tarefa) = 0        │
+│           E (AND)                    │
+│ length(Encontrar_Bucket) > 0        │
+│                                      │
+│ ✅ Tarefa não existe E bucket existe │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 📌 CORREÇÃO 4: BUCKETID NA CRIAÇÃO DA TAREFA
+
+### ❌ ERRADO (ID fixo/hardcoded):
+```
+┌──────────────────────────────────────┐
+│ Criar uma tarefa                     │
+├──────────────────────────────────────┤
+│ Título: [Nome da Tarefa]             │
+│                                      │
+│ ID do Bucket:                        │
+│ ❌ "DrX2VINapUOvCWMVUo_OaWQAGf2h"   │
+│     ↑                                │
+│  SEMPRE O MESMO BUCKET!              │
+│                                      │
+│ Data início: [...]                   │
+└──────────────────────────────────────┘
+```
+
+### ✅ CORRETO (ID dinâmico):
+```
+┌──────────────────────────────────────┐
+│ Criar uma tarefa                     │
+├──────────────────────────────────────┤
+│ Título: [Nome da Tarefa]             │
+│                                      │
+│ ID do Bucket:                        │
+│ ✅ first(body('Encontrar_Bucket'))? │
+│    ['id']                            │
+│     ↑                                │
+│  USA O BUCKET CORRETO!               │
+│                                      │
+│ Data início: [...]                   │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 📌 CORREÇÃO 5: REMOVER LOOPS ANINHADOS
+
+### ❌ ERRADO (Loops desnecessários):
+```
+┌─────────────────────────────┐
+│ 🔄 Aplicar a cada           │
+│  ┌───────────────────────┐  │
+│  │ Condição               │  │
+│  │  SE Não:               │  │
+│  │  ┌─────────────────┐  │  │
+│  │  │ 🔄 For each     │  │  │ ← LOOP DENTRO DE LOOP!
+│  │  │  ┌───────────┐  │  │  │
+│  │  │  │🔄 For each│  │  │  │ ← OUTRO LOOP!
+│  │  │  │  ┌─────┐  │  │  │  │
+│  │  │  │  │ ... │  │  │  │  │ ← CAOS TOTAL!
+│  │  │  │  └─────┘  │  │  │  │
+│  │  │  └───────────┘  │  │  │
+│  │  └─────────────────┘  │  │
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+```
+
+### ✅ CORRETO (Sem loops aninhados):
+```
+┌─────────────────────────────┐
+│ 🔄 Aplicar a cada           │
+│  ┌───────────────────────┐  │
+│  │ Condição               │  │
+│  │  ✅ SE Sim:            │  │
+│  │     → Criar tarefa     │  │
+│  │  ✅ SE Não:            │  │
+│  │     → Log mensagem     │  │
+│  └───────────────────────┘  │
+└─────────────────────────────┘
+```
+
+---
+
+## 🎯 COMO IDENTIFICAR OS ERROS NO SEU FLUXO
+
+### 1️⃣ **Ações repetidas = PROBLEMA**
+Se você vê "Listar buckets" ou "Listar tarefas" mais de uma vez, está errado!
+
+### 2️⃣ **Ações dentro de loops = VERIFICAR**
+Pergunte-se: "Preciso fazer isso para CADA linha?" 
+- Não? Mova para fora!
+
+### 3️⃣ **IDs fixos = SEMPRE ERRADO**
+Nunca use IDs como "DrX2VINa..." diretamente. Use expressões!
+
+### 4️⃣ **Comparações estranhas = REVISAR**
+Boolean ≠ String. Número ≠ Texto. Verifique os tipos!
+
+---
+
+## 🔧 PASSO A PASSO PARA CORRIGIR NO POWER AUTOMATE
+
+### 🖱️ AÇÃO 1: Arrastar blocos
+```
+Para mover uma ação:
+1. Clique e SEGURE no título da ação
+2. ARRASTE para a nova posição
+3. SOLTE quando ver a linha azul
+```
+
+### 🖱️ AÇÃO 2: Editar expressões
+```
+Para adicionar expressão:
+1. Clique no campo
+2. Clique em "fx" (Expressão)
+3. Digite ou cole a expressão
+4. Clique em "OK"
+```
+
+### 🖱️ AÇÃO 3: Configurar condições
+```
+Para AND/OR:
+1. Clique em "+ Adicionar"
+2. Escolha "Adicionar linha"
+3. Selecione "E" ou "OU"
+4. Configure a nova condição
+```
+
+---
+
+## ✅ VALIDAÇÃO FINAL
+
+### Antes de testar, confirme:
+
+- [ ] **Sem duplicatas:** Apenas 1x "Listar buckets"
+- [ ] **Sem duplicatas:** Apenas 1x "Listar tarefas"  
+- [ ] **Fora do loop:** Ambas as listagens
+- [ ] **Expressões corretas:** Todos os campos "De"
+- [ ] **ID dinâmico:** BucketId com first(...)
+- [ ] **Condição AND:** Duas verificações
+- [ ] **Sem loops aninhados:** Máximo 1 nível
+
+---
+
+## 🚀 TESTE RÁPIDO
+
+### Crie uma planilha de teste:
+
+| Nome da Tarefa | Bucket    | Data de início | Data de conclusão |
+|----------------|-----------|----------------|-------------------|
+| Teste 1        | Bucket A  | 2024-01-15     | 2024-01-20       |
+| Teste 2        | Bucket B  | 2024-01-16     | 2024-01-21       |
+| Teste 3        | Bucket A  | 2024-01-17     | 2024-01-22       |
+
+### Execute e verifique:
+1. Primeira execução: 3 tarefas criadas ✅
+2. Segunda execução: 0 tarefas criadas ✅ (já existem)
+3. Se criou 6, 9, ou mais: ERRO! Revise o fluxo 🔴
