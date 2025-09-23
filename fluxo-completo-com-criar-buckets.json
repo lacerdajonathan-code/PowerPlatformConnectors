@@ -1,0 +1,305 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "$connections": {
+      "defaultValue": {},
+      "type": "Object"
+    }
+  },
+  "triggers": {
+    "Recorrencia": {
+      "type": "Recurrence",
+      "recurrence": {
+        "interval": 1,
+        "frequency": "Hour",
+        "timeZone": "E. South America Standard Time"
+      }
+    }
+  },
+  "actions": {
+    "Obter_Dados_Excel": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "source": "sites/petrobrasbr.sharepoint.com,578615aa-234b-4aec-af9d-0be56c810016,2e87ad81-e850-48cd-a4a7-120bce0d73a0",
+          "drive": "b!qhWGV0sj7EqvnQvlbIEAFoGthy5Q6M1IpKcSC84Nc6DrX9IW9jMdRJOLnwRSgrL8",
+          "file": "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA",
+          "table": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+          "connection": "shared_excelonlinebusiness",
+          "operationId": "GetItems"
+        }
+      },
+      "runAfter": {},
+      "metadata": {
+        "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA": "/1.Gerência/Controles/Planner_Tarefas_Unificadas.xlsx",
+        "tableId": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+      }
+    },
+    "Inicializar_Variavel_Bucket": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "BucketAtual",
+            "type": "object"
+          }
+        ]
+      },
+      "runAfter": {
+        "Obter_Dados_Excel": ["Succeeded"]
+      }
+    },
+    "Listar_Todos_Buckets": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+          "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+          "connection": "shared_planner",
+          "operationId": "ListBuckets_V3"
+        }
+      },
+      "runAfter": {
+        "Inicializar_Variavel_Bucket": ["Succeeded"]
+      }
+    },
+    "Obter_Tarefas_Existentes": {
+      "type": "OpenApiConnection",
+      "inputs": {
+        "parameters": {
+          "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+          "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+        },
+        "host": {
+          "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+          "connection": "shared_planner",
+          "operationId": "ListTasks_V3"
+        }
+      },
+      "runAfter": {
+        "Listar_Todos_Buckets": ["Succeeded"]
+      }
+    },
+    "Processar_Cada_Linha_Excel": {
+      "type": "Foreach",
+      "foreach": "@body('Obter_Dados_Excel')?['value']",
+      "actions": {
+        "Validar_Campos_Obrigatorios": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": ["@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']", ""]
+                }
+              },
+              {
+                "not": {
+                  "equals": ["@items('Processar_Cada_Linha_Excel')?['Bucket']", ""]
+                }
+              }
+            ]
+          },
+          "actions": {
+            "Encontrar_Bucket_Correspondente": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Listar_Todos_Buckets')?['value']",
+                "where": "@equals(toLower(trim(item()?['name'])), toLower(trim(items('Processar_Cada_Linha_Excel')?['Bucket'])))"
+              }
+            },
+            "Verificar_Se_Bucket_Existe": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@length(body('Encontrar_Bucket_Correspondente'))",
+                  0
+                ]
+              },
+              "actions": {
+                "Criar_Novo_Bucket": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "body/planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY",
+                      "body/name": "@items('Processar_Cada_Linha_Excel')?['Bucket']"
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                      "connection": "shared_planner",
+                      "operationId": "CreateBucket_V2"
+                    }
+                  }
+                },
+                "Aguardar_Criacao": {
+                  "type": "Wait",
+                  "inputs": {
+                    "interval": {
+                      "count": 2,
+                      "unit": "Second"
+                    }
+                  },
+                  "runAfter": {
+                    "Criar_Novo_Bucket": ["Succeeded"]
+                  }
+                },
+                "Listar_Buckets_Atualizado": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                      "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                      "connection": "shared_planner",
+                      "operationId": "ListBuckets_V3"
+                    }
+                  },
+                  "runAfter": {
+                    "Aguardar_Criacao": ["Succeeded"]
+                  }
+                },
+                "Encontrar_Bucket_Criado": {
+                  "type": "Query",
+                  "inputs": {
+                    "from": "@body('Listar_Buckets_Atualizado')?['value']",
+                    "where": "@equals(toLower(trim(item()?['name'])), toLower(trim(items('Processar_Cada_Linha_Excel')?['Bucket'])))"
+                  },
+                  "runAfter": {
+                    "Listar_Buckets_Atualizado": ["Succeeded"]
+                  }
+                },
+                "Definir_Bucket_Para_Usar": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "BucketAtual",
+                    "value": "@first(body('Encontrar_Bucket_Criado'))"
+                  },
+                  "runAfter": {
+                    "Encontrar_Bucket_Criado": ["Succeeded"]
+                  }
+                },
+                "Log_Bucket_Criado": {
+                  "type": "Compose",
+                  "inputs": {
+                    "acao": "Bucket criado com sucesso",
+                    "nome": "@items('Processar_Cada_Linha_Excel')?['Bucket']",
+                    "id": "@variables('BucketAtual')?['id']"
+                  },
+                  "runAfter": {
+                    "Definir_Bucket_Para_Usar": ["Succeeded"]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Usar_Bucket_Existente": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "BucketAtual",
+                      "value": "@first(body('Encontrar_Bucket_Correspondente'))"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Encontrar_Bucket_Correspondente": ["Succeeded"]
+              }
+            },
+            "Verificar_Tarefa_Existe": {
+              "type": "Query",
+              "inputs": {
+                "from": "@body('Obter_Tarefas_Existentes')?['value']",
+                "where": "@equals(toLower(trim(item()?['title'])), toLower(trim(items('Processar_Cada_Linha_Excel')?['Nome da Tarefa'])))"
+              },
+              "runAfter": {
+                "Verificar_Se_Bucket_Existe": ["Succeeded"]
+              }
+            },
+            "Verificar_Se_Deve_Criar_Tarefa": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@length(body('Verificar_Tarefa_Existe'))",
+                  0
+                ]
+              },
+              "actions": {
+                "Criar_Nova_Tarefa_Planner": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "parameters": {
+                      "body/groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                      "body/planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY",
+                      "body/title": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                      "body/bucketId": "@variables('BucketAtual')?['id']",
+                      "body/startDateTime": "@if(empty(items('Processar_Cada_Linha_Excel')?['Data de início']), null, if(isInt(items('Processar_Cada_Linha_Excel')?['Data de início']), if(and(greater(int(items('Processar_Cada_Linha_Excel')?['Data de início']), 25569), less(int(items('Processar_Cada_Linha_Excel')?['Data de início']), 60000)), addDays('1899-12-30', int(items('Processar_Cada_Linha_Excel')?['Data de início'])), null), items('Processar_Cada_Linha_Excel')?['Data de início']))",
+                      "body/dueDateTime": "@if(empty(items('Processar_Cada_Linha_Excel')?['Data de conclusão']), null, if(isInt(items('Processar_Cada_Linha_Excel')?['Data de conclusão']), if(and(greater(int(items('Processar_Cada_Linha_Excel')?['Data de conclusão']), 25569), less(int(items('Processar_Cada_Linha_Excel')?['Data de conclusão']), 60000)), addDays('1899-12-30', int(items('Processar_Cada_Linha_Excel')?['Data de conclusão'])), null), items('Processar_Cada_Linha_Excel')?['Data de conclusão']))",
+                      "body/assignments": "@if(empty(items('Processar_Cada_Linha_Excel')?['Tarefa']), null, items('Processar_Cada_Linha_Excel')?['Tarefa'])",
+                      "body/notes": "@if(empty(items('Processar_Cada_Linha_Excel')?['Observações']), '', items('Processar_Cada_Linha_Excel')?['Observações'])"
+                    },
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                      "connection": "shared_planner",
+                      "operationId": "CreateTask_V3"
+                    }
+                  }
+                },
+                "Log_Tarefa_Criada": {
+                  "type": "Compose",
+                  "inputs": {
+                    "acao": "Tarefa criada com sucesso",
+                    "tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                    "bucket": "@variables('BucketAtual')?['name']",
+                    "responsavel": "@items('Processar_Cada_Linha_Excel')?['Tarefa']"
+                  },
+                  "runAfter": {
+                    "Criar_Nova_Tarefa_Planner": ["Succeeded"]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Log_Tarefa_Ja_Existe": {
+                    "type": "Compose",
+                    "inputs": {
+                      "acao": "Tarefa não criada - já existe",
+                      "tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                      "quantidade_existente": "@length(body('Verificar_Tarefa_Existe'))"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Verificar_Tarefa_Existe": ["Succeeded"]
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Log_Campos_Invalidos": {
+                "type": "Compose",
+                "inputs": {
+                  "erro": "Linha ignorada - campos obrigatórios vazios",
+                  "nome_tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                  "bucket": "@items('Processar_Cada_Linha_Excel')?['Bucket']"
+                }
+              }
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Obter_Tarefas_Existentes": ["Succeeded"]
+      }
+    }
+  }
+}
