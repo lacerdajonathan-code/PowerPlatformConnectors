@@ -1,0 +1,278 @@
+{
+  "workflow": {
+    "name": "Excel to Planner Task Sync - CORRIGIDO",
+    "description": "Versão corrigida com tratamento de erros e validações",
+    "trigger": {
+      "type": "Recurrence",
+      "recurrence": {
+        "interval": 1,
+        "frequency": "Hour",
+        "timeZone": "E. South America Standard Time"
+      }
+    },
+    "actions": {
+      "Obter_Dados_Excel": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "parameters": {
+            "source": "sites/petrobrasbr.sharepoint.com,578615aa-234b-4aec-af9d-0be56c810016,2e87ad81-e850-48cd-a4a7-120bce0d73a0",
+            "drive": "b!qhWGV0sj7EqvnQvlbIEAFoGthy5Q6M1IpKcSC84Nc6DrX9IW9jMdRJOLnwRSgrL8",
+            "file": "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA",
+            "table": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+          },
+          "host": {
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+            "connection": "shared_excelonlinebusiness",
+            "operationId": "GetItems"
+          }
+        },
+        "runAfter": {},
+        "metadata": {
+          "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA": "/1.Gerência/Controles/Planner_Tarefas_Unificadas.xlsx",
+          "tableId": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+        }
+      },
+      "Verificar_Excel_Com_Dados": {
+        "type": "If",
+        "expression": {
+          "greater": [
+            "@length(body('Obter_Dados_Excel')?['value'])",
+            0
+          ]
+        },
+        "actions": {
+          "Listar_Todos_Buckets": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "parameters": {
+                "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+              },
+              "host": {
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                "connection": "shared_planner",
+                "operationId": "ListBuckets_V3"
+              }
+            },
+            "runAfter": {}
+          },
+          "Obter_Tarefas_Existentes": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "parameters": {
+                "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+              },
+              "host": {
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                "connection": "shared_planner",
+                "operationId": "ListTasks_V3"
+              }
+            },
+            "runAfter": {
+              "Listar_Todos_Buckets": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Processar_Cada_Linha_Excel": {
+            "type": "Foreach",
+            "foreach": "@body('Obter_Dados_Excel')?['value']",
+            "runtimeConfiguration": {
+              "concurrency": {
+                "repetitions": 20
+              }
+            },
+            "actions": {
+              "Validar_Dados_Linha": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "equals": [
+                          "@coalesce(items('Processar_Cada_Linha_Excel')?['Nome da Tarefa'], '')",
+                          ""
+                        ]
+                      }
+                    },
+                    {
+                      "not": {
+                        "equals": [
+                          "@coalesce(items('Processar_Cada_Linha_Excel')?['Bucket'], '')",
+                          ""
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "Encontrar_Bucket_Correspondente": {
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@body('Listar_Todos_Buckets')?['value']",
+                      "where": "@equals(item()?['name'], items('Processar_Cada_Linha_Excel')?['Bucket'])"
+                    },
+                    "runAfter": {}
+                  },
+                  "Verificar_Tarefa_Existe": {
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@body('Obter_Tarefas_Existentes')?['value']",
+                      "where": "@equals(item()?['title'], items('Processar_Cada_Linha_Excel')?['Nome da Tarefa'])"
+                    },
+                    "runAfter": {
+                      "Encontrar_Bucket_Correspondente": [
+                        "Succeeded"
+                      ]
+                    }
+                  },
+                  "Verificar_Se_Deve_Criar_Tarefa": {
+                    "type": "If",
+                    "expression": {
+                      "and": [
+                        {
+                          "equals": [
+                            "@length(body('Verificar_Tarefa_Existe'))",
+                            0
+                          ]
+                        },
+                        {
+                          "greater": [
+                            "@length(body('Encontrar_Bucket_Correspondente'))",
+                            0
+                          ]
+                        }
+                      ]
+                    },
+                    "actions": {
+                      "Criar_Nova_Tarefa_Planner": {
+                        "type": "OpenApiConnection",
+                        "inputs": {
+                          "parameters": {
+                            "body/groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                            "body/planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY",
+                            "body/title": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                            "body/bucketId": "@first(body('Encontrar_Bucket_Correspondente'))?['id']"
+                          },
+                          "host": {
+                            "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                            "connection": "shared_planner",
+                            "operationId": "CreateTask_V3"
+                          }
+                        },
+                        "runAfter": {}
+                      },
+                      "Log_Tarefa_Criada": {
+                        "type": "Compose",
+                        "inputs": {
+                          "Status": "Criada",
+                          "Tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                          "Bucket": "@items('Processar_Cada_Linha_Excel')?['Bucket']",
+                          "Timestamp": "@utcNow()"
+                        },
+                        "runAfter": {
+                          "Criar_Nova_Tarefa_Planner": [
+                            "Succeeded"
+                          ]
+                        }
+                      },
+                      "Tratar_Erro_Criacao": {
+                        "type": "Compose",
+                        "inputs": {
+                          "Status": "Erro ao criar",
+                          "Tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                          "Erro": "@body('Criar_Nova_Tarefa_Planner')",
+                          "Timestamp": "@utcNow()"
+                        },
+                        "runAfter": {
+                          "Criar_Nova_Tarefa_Planner": [
+                            "Failed",
+                            "TimedOut"
+                          ]
+                        }
+                      }
+                    },
+                    "else": {
+                      "actions": {
+                        "Log_Tarefa_Ja_Existe_Ou_Bucket_Invalido": {
+                          "type": "Compose",
+                          "inputs": {
+                            "Status": "Ignorada",
+                            "Motivo": "@if(greater(length(body('Verificar_Tarefa_Existe')), 0), 'Tarefa já existe', 'Bucket não encontrado')",
+                            "Tarefa": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                            "Bucket_Buscado": "@items('Processar_Cada_Linha_Excel')?['Bucket']",
+                            "Timestamp": "@utcNow()"
+                          },
+                          "runAfter": {}
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Verificar_Tarefa_Existe": [
+                        "Succeeded"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "actions": {
+                    "Log_Dados_Invalidos": {
+                      "type": "Compose",
+                      "inputs": {
+                        "Status": "Dados inválidos",
+                        "Motivo": "Nome da tarefa ou bucket vazio",
+                        "Linha": "@items('Processar_Cada_Linha_Excel')",
+                        "Timestamp": "@utcNow()"
+                      },
+                      "runAfter": {}
+                    }
+                  }
+                },
+                "runAfter": {}
+              }
+            },
+            "runAfter": {
+              "Obter_Tarefas_Existentes": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Log_Excel_Vazio": {
+              "type": "Compose",
+              "inputs": {
+                "Status": "Nenhum dado para processar",
+                "Mensagem": "A tabela do Excel está vazia ou não retornou dados",
+                "Timestamp": "@utcNow()"
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "runAfter": {
+          "Obter_Dados_Excel": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Tratar_Erro_Excel": {
+        "type": "Compose",
+        "inputs": {
+          "Status": "Erro crítico",
+          "Motivo": "Falha ao obter dados do Excel",
+          "Erro": "@body('Obter_Dados_Excel')",
+          "Timestamp": "@utcNow()"
+        },
+        "runAfter": {
+          "Obter_Dados_Excel": [
+            "Failed",
+            "TimedOut"
+          ]
+        }
+      }
+    }
+  }
+}

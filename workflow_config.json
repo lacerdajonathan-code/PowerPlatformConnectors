@@ -1,0 +1,171 @@
+{
+  "workflow": {
+    "name": "Excel to Planner Task Sync",
+    "description": "Synchronizes tasks from Excel spreadsheet to Microsoft Planner",
+    "trigger": {
+      "type": "Recurrence",
+      "recurrence": {
+        "interval": 1,
+        "frequency": "Hour",
+        "timeZone": "E. South America Standard Time"
+      }
+    },
+    "actions": {
+      "Obter_Dados_Excel": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "parameters": {
+            "source": "sites/petrobrasbr.sharepoint.com,578615aa-234b-4aec-af9d-0be56c810016,2e87ad81-e850-48cd-a4a7-120bce0d73a0",
+            "drive": "b!qhWGV0sj7EqvnQvlbIEAFoGthy5Q6M1IpKcSC84Nc6DrX9IW9jMdRJOLnwRSgrL8",
+            "file": "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA",
+            "table": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+          },
+          "host": {
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_excelonlinebusiness",
+            "connection": "shared_excelonlinebusiness",
+            "operationId": "GetItems"
+          }
+        },
+        "runAfter": {},
+        "metadata": {
+          "01467YMNF5OGHA7AWVMRCLBBKQGHYWY7QA": "/1.Gerência/Controles/Planner_Tarefas_Unificadas.xlsx",
+          "tableId": "{92AC1A55-2203-4675-8AEA-A904F23A71D8}"
+        }
+      },
+      "Listar_Todos_Buckets": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "parameters": {
+            "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+            "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+          },
+          "host": {
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+            "connection": "shared_planner",
+            "operationId": "ListBuckets_V3"
+          }
+        },
+        "runAfter": {
+          "Obter_Dados_Excel": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Obter_Tarefas_Existentes": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "parameters": {
+            "groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+            "id": "XLO7WAvmFEGU07P6t_UH4WQAF9gY"
+          },
+          "host": {
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+            "connection": "shared_planner",
+            "operationId": "ListTasks_V3"
+          }
+        },
+        "runAfter": {
+          "Listar_Todos_Buckets": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Processar_Cada_Linha_Excel": {
+        "type": "Foreach",
+        "foreach": "@body('Obter_Dados_Excel')?['value']",
+        "actions": {
+          "Encontrar_Bucket_Correspondente": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('Listar_Todos_Buckets')?['value']",
+              "where": "@equals(item()?['name'],items('Processar_Cada_Linha_Excel')?['Bucket'])"
+            }
+          },
+          "Verificar_Tarefa_Existe": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('Obter_Tarefas_Existentes')?['value']",
+              "where": "@equals(item()?['title'],items('Processar_Cada_Linha_Excel')?['Nome da Tarefa'])"
+            },
+            "runAfter": {
+              "Encontrar_Bucket_Correspondente": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Debug_Verificar_Logica": {
+            "type": "Compose",
+            "inputs": {
+              "1_DADOS_EXCEL": "@items('Processar_Cada_Linha_Excel')",
+              "2_BUCKET_BUSCADO": "@items('Processar_Cada_Linha_Excel')?['Bucket']",
+              "3_BUCKET_ENCONTRADO": "@length(body('Encontrar_Bucket_Correspondente'))",
+              "4_TAREFA_BUSCADA": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+              "5_TAREFA_JA_EXISTE": "@length(body('Verificar_Tarefa_Existe'))",
+              "6_DEVERIA_CRIAR": "@and(equals(length(body('Verificar_Tarefa_Existe')), 0), greater(length(body('Encontrar_Bucket_Correspondente')), 0))"
+            },
+            "runAfter": {
+              "Verificar_Tarefa_Existe": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Verificar_Se_Deve_Criar_Tarefa": {
+            "type": "If",
+            "expression": {
+              "and": [
+                {
+                  "equals": [
+                    "@length(body('Verificar_Tarefa_Existe'))",
+                    0
+                  ]
+                },
+                {
+                  "greater": [
+                    "@length(body('Encontrar_Bucket_Correspondente'))",
+                    0
+                  ]
+                }
+              ]
+            },
+            "actions": {
+              "Criar_Nova_Tarefa_Planner": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "parameters": {
+                    "body/groupId": "332dd89f-c104-4ae6-96a9-6a45b8ec6f6f",
+                    "body/planId": "XLO7WAvmFEGU07P6t_UH4WQAF9gY",
+                    "body/title": "@items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']",
+                    "body/bucketId": "@first(body('Encontrar_Bucket_Correspondente'))?['id']"
+                  },
+                  "host": {
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+                    "connection": "shared_planner",
+                    "operationId": "CreateTask_V3"
+                  }
+                }
+              }
+            },
+            "else": {
+              "actions": {
+                "Log_Tarefa_Ja_Existe": {
+                  "type": "Compose",
+                  "inputs": "Tarefa já existe ou bucket não encontrado: @{items('Processar_Cada_Linha_Excel')?['Nome da Tarefa']}"
+                }
+              }
+            },
+            "runAfter": {
+              "Debug_Verificar_Logica": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Obter_Tarefas_Existentes": [
+            "Succeeded"
+          ]
+        }
+      }
+    }
+  }
+}
